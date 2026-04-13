@@ -1,0 +1,562 @@
+---
+title: "Sema study report"
+format: 
+    html:
+        code-fold: true
+        self-contained: true
+---
+
+Analysis pipeline is based on the framework described in the original CalR paper: [Found here](https://pmc.ncbi.nlm.nih.gov/articles/PMC6170709/)
+
+A brief method summary is provided here:
+
+*Average energy expenditure and food intake were compared as previously described (PMID 30017358). ANOVA/ANCOVA was calculated using R v. 4.5.2 and Rstudio 2026.1.1.403. A daily average for the metabolic variable y and for bodymass was calculated. To test for an interaction between bodymass and Treatment for y, a type III anova was performed using the formula glm(y\~bodymass \* Treatment) using the car package . If no interaction was detected, an ancova (type II) with F-test was performed using the formula glm(y\~bodymass + Treatment). A posthoc test was performed using Tukey’s honest significant difference (HSD) post hoc test using glht(glm.model, mcp( group = “Tukey” )) through the multcomp package (https://pubmed.ncbi.nlm.nih.gov/18481363/). When an interaction was detected between bodymass and Treatment data was instead modeled as glm(y\~bodymass + Treatment + bodymass:Treatement). A multiple comparison was performed on this model as described above, with the added caution that interaction effects may affect quality of posthoc results.*
+```{r}
+#| warning: false
+#| message: false
+#| output: false
+#load packages
+
+library(tidyverse)
+library(here)
+library(emmeans)
+library(multcomp)
+library(stats)
+library(readxl)
+library(broom)
+library(writexl)
+source(here::here("r/support_files_sema.R"))
+```
+
+# Paradigm 2 (3 groups)
+
+load data and select our three windows - day 1, day 5 and day 12
+
+```{r}
+#| warning: false
+
+ee_data <- read_xlsx(here::here("data-raw/sema/EE_kcal_hr_add_on_paradigm.xlsx"),col_types = "numeric")
+ee_data_long <- pivot_longer(ee_data,
+                             names_to = "cage",
+                             values_to = "ee",
+                             cols = -"Hour") |>
+    dplyr::mutate(Treatment = stringr::str_remove(
+        cage,
+        "[:digit:]+$"
+    )) |>
+    dplyr::filter(!is.na(ee)&Treatment != "...")
+
+#import weight data
+
+weight_data <- read_xlsx(here::here("data-raw/sema/Copy of BWS_morten.xlsx"),
+                         sheet =2,
+                         col_types = "numeric")
+weight_long <- weight_data |>
+    dplyr::filter(!is.na(`Mouse ID`)) |>
+    pivot_longer(names_to = "cage",
+                 values_to = "bodymass",
+                 cols = -"Mouse ID") |>
+    dplyr::rename(Day = `Mouse ID`)
+
+ee_day1 <- select_window(ee_data_long,weight_long, 24, 48,1)
+ee_day6 <- select_window(ee_data_long,weight_long, 168, 192,6)
+ee_day12 <- select_window(ee_data_long,weight_long, 312, 336,12)
+```
+
+plot average ee for the three days
+
+```{r}
+#| label: fig-xy_day1
+#| warning: false
+#| fig-cap: "XY plot for EE vs bodymass"
+#| fig-subcap: 
+#|   - "Day 1"
+#|   - "Day 5"
+#|   - "Day 12"
+#| layout-ncol: 3
+#| 
+
+xy_plot1 <- xy_plot(ee_day1)
+xy_plot2 <-xy_plot(ee_day6)
+xy_plot3 <- xy_plot(ee_day12)
+
+xy_plot1
+xy_plot2
+xy_plot3
+
+
+```
+
+## Day 1
+
+Test for interaction
+
+```{r}
+lm_calc1 <- lm_calc(ee_day1)
+car::Anova(lm_calc1, type = 3, test.statistic = "F")
+
+```
+
+No interaction found for day 1
+
+We proceed with ANCOVA (type II) with F-test
+
+```{r}
+ee_day1 <- factor_treatment(ee_day1)
+lm_ancova1 <- glm(ee ~ bodymass + Treatment,
+                 data = ee_day1,
+                 family = gaussian(link = "identity"))
+car::Anova(lm_ancova1, type = 2, test.statistic = "F")
+```
+
+No effect of either bodymass or treatment at day 1
+
+## Day5
+
+```{r}
+lm_calc2 <- lm_calc(ee_day6)
+car::Anova(lm_calc2, type = 3, test.statistic = "F")
+
+```
+
+no interaction so we proceed with ANCOVA
+
+```{r}
+ee_day6 <- factor_treatment(ee_day6)
+lm_ancova2 <- glm(ee ~ bodymass + Treatment,
+                  data = ee_day6,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova2, type = 2, test.statistic = "F")
+```
+
+Main effect of body mass and treatement. We can proceed with a posthoc
+
+```{r}
+multiple_comparisons2 <- glht(lm_ancova2,
+                              mcp(Treatment = "Tukey"))
+
+summary(multiple_comparisons2)
+```
+
+Significant effect of combination treatment vs the other two
+
+## Day 12
+
+```{r}
+lm_calc3 <- lm_calc(ee_day12)
+car::Anova(lm_calc3, type = 3, test.statistic = "F")
+```
+
+No interaction, we proceed with ANCOVA
+
+```{r}
+ee_day12 <- factor_treatment(ee_day12)
+lm_ancova3 <- glm(ee ~ bodymass + Treatment,
+                  data = ee_day12,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova3, type = 2, test.statistic = "F")
+```
+
+Main effect of both body mass and treatment
+
+```{r}
+multiple_comparisons3 <- glht(lm_ancova3,
+                              mcp(Treatment = "Tukey"))
+
+summary(multiple_comparisons3)
+
+```
+
+Combination therapy is highly significant, bu there is also an effect of sema after day 12
+
+If we want to save and export the data, the following code can be used:
+
+```{r}
+
+ee_data <- list("day1"= ee_day1,
+                "day6"=ee_day6,
+                "day12"=ee_day12)
+
+#
+# writexl::write_xlsx(ee_data,
+#                     here::here("doc/ee_data.xlsx"))
+```
+
+# Paradigm 1 (Four groups) - Energy Expenditure
+
+We start by loading in the data
+```{r}
+ee_data_2 <- readRDS(here::here("data-raw/sema/rmpp_2025_079.rds"))
+ee_meta <- readRDS(here::here("data-raw/sema/rmpp_2025_079_meta.rds"))
+
+#add unique ID and remove cage 8 and 11 from system 2
+
+ee_data_2 <- ee_data_2 |>
+    dplyr::mutate(Unique_ID = paste(system, cage_id,sep = "_")) |>
+    dplyr::filter(Unique_ID != "sable2_8"& Unique_ID != "sable2_11")
+
+#split into our three groups
+
+ee_day1_data2 <- trim_data_study_2(ee_data_2, ee_meta, 24, 48)
+ee_day5_data2 <- trim_data_study_2(ee_data_2, ee_meta, 120, 144)
+#we crop data slightly because the final recording finished earlier
+ee_day12_data2 <- trim_data_study_2(ee_data_2, ee_meta, 288, 312)
+```
+
+To export the data, run the following code:
+
+```{r}
+    ee_collected <- list("day1"= ee_day1_data2,
+                     "day5"= ee_day5_data2,
+                     "day12" = ee_day12_data2)
+# writexl::write_xlsx(ee_collected,
+#                     here::here("doc/ee_data_4groups.xlsx"))
+```
+
+We visualize data for the three days:
+
+```{r}
+#| label: fig-xy_day2
+#| warning: false
+#| fig-cap: "XY plot for EE vs bodymass"
+#| fig-subcap: 
+#|   - "Day 1"
+#|   - "Day 5"
+#|   - "Day 12"
+#| layout-ncol: 3
+#| 
+
+xy_plot1 <- xy_plot(ee_day1_data2)
+xy_plot2 <-xy_plot(ee_day5_data2)
+xy_plot3 <- xy_plot(ee_day12_data2)
+
+xy_plot1
+xy_plot2
+xy_plot3
+
+
+```
+
+## Day 1
+
+We test for an interaction:
+```{r}
+lm_calc1 <- lm_calc(ee_day1_data2)
+car::Anova(lm_calc1, type = 3, test.statistic = "F")
+```
+We proceed with ANCOVA
+```{r}
+ee_day1_data2 <- factor_treatment(ee_day1_data2)
+lm_ancova1 <- glm(ee ~ bodymass + Treatment,
+                  data = ee_day1_data2,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova1, type = 2, test.statistic = "F")
+```
+Main effect of treatment and bodymass at day 1
+```{r}
+
+multiple_comparison1 <- glht(lm_ancova1,
+                             mcp(Treatment = "Tukey"))
+
+summary(multiple_comparison1)
+```
+The sema group appears to be lower than gh and vehicle at day1, with combination being borderline. Could this be sema-induced malaise, as this is their first exposure?
+
+## Day 5
+
+We test for interaction
+```{r}
+
+lm_calc2 <- lm_calc(ee_day5_data2)
+car::Anova(lm_calc2, type = 3, test.statistic = "F")
+
+```
+
+No interaction detected, we proceed with ANCOVA
+
+```{r}
+ee_day5_data2 <- factor_treatment(ee_day5_data2)
+ee_day5_data2$Treatment <- relevel(ee_day5_data2$Treatment, ref = "veh")
+lm_ancova2 <- glm(ee ~ bodymass + Treatment,
+                  data = ee_day5_data2,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova2,
+           type = 2,
+           test.statistic = "F")
+```
+Main effect of both body mass and treatment, we proceed with posthoc
+```{r}
+multiple_comparisons2 <- glht(lm_ancova2,
+                              mcp(Treatment = "Tukey"))
+summary(multiple_comparisons2)
+```
+We see the sema+gh group is different for all others, with gh vs vehicle being borderline
+
+## Day 12
+
+We perform interaction test on day 12 data
+```{r}
+lm_calc3 <- lm_calc(ee_day12_data2)
+car::Anova(lm_calc3, type = 3, test.statistic  ="F")
+```
+We have an interaction so we must now take this interaction effect into account. Note that ee ~ bodymass + Treatment + bodymass:Treatment is essentially equivalent to ee~bodymass*Treatment
+
+```{r}
+
+ee_day12_data2 <- factor_treatment(ee_day12_data2)
+ee_day12_data2$Treatment <- relevel(ee_day12_data2$Treatment, ref = "veh")
+lm_ancova3 <- glm(ee ~ bodymass + Treatment + bodymass:Treatment,
+                  data = ee_day12_data2,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova3, type = 3, test.statistic = "F")
+```
+If we run posthoc test we get a warning that the interaction effect is interfering with results:
+
+```{r}
+
+multiple_comparisons3 <- glht(lm_ancova3,
+                              mcp(Treatment = "Tukey"))
+
+summary(multiple_comparisons3)
+```
+This one supports our first observation that combination treatement is different from the others.
+
+Our interaction tells us that there is no unified treatment effect, and that the treatment effect varies with body weight. One way we can explore this is to test our model at different body weights. Here we extract the 25% lower quartile, the 75% higher quartile and the median weight, and run an estimated margin means test around these. This framework was suggested as an alternative by Microsoft Copilot
+
+```{r}
+
+ bm_vals <- quantile(ee_day12_data2$bodymass, c(.25, .5, .75))
+ #classify according to bm_vals
+
+ emm <- emmeans(
+     lm_calc3,
+     ~ Treatment | bodymass,
+     at = list(bodymass = bm_vals)
+ )
+
+ pairs(emm, adjust = "tukey")
+```
+If I interpret this correctly it would mean that at the lower body mass, we see a difference between sema and sema+GH, whereas at higher body mass we see a difference between GH and veh.
+
+This can be visualized with the following plot:
+
+```{r}
+#| label: fig-emm_plot
+#| warning: false
+#| fig-cap: "Estimated marginal means plot for 3 sampled body masses"
+
+plot(emm)
+```
+
+## EE effect across treatement period
+
+We prepare data form hour 0 to hour 336, trim excluded cages and calculate average values
+
+```{r}
+metadata <- readRDS(here::here("data-raw/sema/rmpp_2025_079_meta.rds"))
+sabledata_mod <- ee_data_2 |> dplyr::filter(elapsed_h<336)
+
+
+#get summary data
+displayed_data <-  sabledata_mod |>
+    dplyr::mutate(Unique_ID = paste(system, cage_id,sep = "_")) |>
+    dplyr::group_by(Unique_ID) |>
+    dplyr::summarise(ee = mean(ee),
+                     feed = mean(feed),
+                     bodymass = mean(bodymass),
+                     vo2 = mean(vo2),
+                     vco2 = mean(vco2)) |>
+    dplyr::left_join( metadata,
+                      by = c("Unique_ID"="Unique_ID")) |>
+    dplyr::filter(Unique_ID != "sable2_8"& Unique_ID != "sable2_11")
+```
+
+Visualize as XY
+```{r}
+#| label: fig-xy_total
+#| warning: false
+#| fig-cap: "Average EE vs. body weight across study"
+
+xy_plot <- ggpubr::ggscatter(
+    data = displayed_data,
+    x = "bodymass",
+    y  = "ee",
+    color = "Treatment",
+    add = "reg.line"
+)+
+    ggpubr::stat_regline_equation(
+        ggplot2::aes( label = paste(..eq.label..,
+                                    ..rr.label..,
+                                    sep = "~~~~"),
+                      color = Treatment))
+xy_plot
+
+```
+Factorize and check for interaction
+```{r}
+displayed_data$Treatment <- factor(displayed_data$Treatment)
+displayed_data$Treatment <- relevel(displayed_data$Treatment, ref = "veh")
+lm_data <- glm(ee~bodymass*Treatment,
+                   data = displayed_data,
+                   family = gaussian(link = "identity"))
+car::Anova(lm_data, type  =3, test.statistic = "F")
+```
+No interaction, we proceed with ANCOVA
+```{r}
+
+lm_ancova <- glm(ee ~ bodymass + Treatment,
+                    data = displayed_data,
+                    family = gaussian(link = "identity"))
+car::Anova(lm_ancova, type = 2, test.statistic = "F")
+
+```
+Main effect of bodymass and treatment. Proceed with posthoc
+```{r}
+multiple_comparison <- glht(lm_ancova,
+                             mcp(Treatment = "Tukey"))
+
+summary(multiple_comparison)
+```
+We see sema combination treatment is significantly different from other groups. There is a borderline effect of gh vs veh
+
+## Food intake data
+
+We load in food intake data and trim them:
+
+```{r}
+
+fi_data <- read_xlsx(here::here("data-raw/sema/daily_kcal.xlsx")) |>
+    dplyr::mutate(Treatment = str_remove(ID, "[:digit:]+$")) |>
+    dplyr::rename(bodymass = bw,
+                  fi = kcal_day)
+fi_day1 <- select_window_fi(fi_data, 1)
+fi_day5 <- select_window_fi(fi_data, 5)
+
+fi_day12 <- select_window_fi(fi_data, 12)
+```
+
+We proceed to plot the three xy plots to explore our data
+
+```{r}
+#| label: fig-xy_fi
+#| warning: false
+#| fig-cap: "XY plot for FI vs bodymass"
+#| fig-subcap: 
+#|   - "Day 1"
+#|   - "Day 5"
+#|   - "Day 12"
+#| layout-ncol: 3
+#| 
+
+xy_plot1 <- xy_plot_fi(fi_day1)
+xy_plot2 <-xy_plot_fi(fi_day5)
+xy_plot3 <- xy_plot_fi(fi_day12)
+
+xy_plot1
+xy_plot2
+xy_plot3
+
+
+```
+To save and export data run
+```{r}
+
+fi_collected <- list("day1"= fi_day1,
+                     "day5"= fi_day5,
+                     "day12" = fi_day12)
+# writexl::write_xlsx(fi_collected,
+#                     here::here("doc/fi_data_4groups.xlsx"))
+```
+
+### Day 1
+We firstly look for an interaction
+```{r}
+
+lm_calc1 <- lm_calc_fi(fi_day1)
+car::Anova(lm_calc1,
+           type = 3,
+           test.statistic = "F")
+
+```
+No interaction, proceed with ANCOVA
+
+```{r}
+fi_day1 <- factor_treatment_fi(fi_day1)
+lm_ancova1 <- glm(fi ~ bodymass + Treatment,
+                  data = fi_day1,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova1,
+           type = 2,
+           test.statistic = "F")
+```
+Main effect of both body mass and Treatment
+
+```{r}
+
+multiple_comparison1 <- glht(lm_ancova1,
+                             mcp(Treatment = "Tukey"))
+
+summary(multiple_comparison1)
+```
+The sema groups are different from the other two
+
+### Day 5
+```{r}
+
+lm_calc2 <- lm_calc_fi(fi_day5)
+car::Anova(lm_calc2,
+           type = 3,
+           test.statistic = "F")
+```
+No interaction detected
+
+```{r}
+fi_day5 <- factor_treatment_fi(fi_day5)
+lm_ancova2 <- glm(fi ~ bodymass + Treatment,
+                  data = fi_day5,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova2,
+           type = 2,
+           test.statistic = "F")
+```
+We can proceed with a posthoc test (though no main effect of bodymass)
+```{r}
+multiple_comparisons2 <- glht(lm_ancova2,
+                              mcp(Treatment = "Tukey"))
+#we get a warning about doing multiple comparisons
+summary(multiple_comparisons2)
+```
+Same conclusion as first, we have a difference between the sema groups and the other two
+
+### Day 12
+```{r}
+lm_calc3 <- lm_calc_fi(fi_day12)
+car::Anova(lm_calc3, type = 3, test.statistic = "F")
+
+```
+no interaction
+
+```{r}
+
+fi_day12 <- factor_treatment_fi(fi_day12)
+lm_ancova3 <- glm(fi ~ bodymass + Treatment,
+                  data = fi_day12,
+                  family = gaussian(link = "identity"))
+car::Anova(lm_ancova3,
+           type = 2,
+           test.statistic = "F")
+```
+Main effect of treatment
+
+```{r}
+
+multiple_comparisons3 <- glht(lm_ancova3,
+                              mcp(Treatment = "Tukey"))
+
+summary(multiple_comparisons3)
+```
+At this time point, a significant effect of sema vs veh and sema vs. gh - borderline effect of combination vs vehicle.
+
+# Conclusion
+
+Combination therapy increases energy expenditure without further reducing food intake compared to sema alone

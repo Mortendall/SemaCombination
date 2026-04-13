@@ -1,0 +1,18 @@
+Package: SemaCombination
+Title: Analysis Project for SemaCombination
+Type: Project
+Version: 0.0.1
+Encoding: UTF-8
+Suggests: 
+    tidyverse
+Imports: 
+    broom,
+    dplyr,
+    emmeans,
+    ggplot2,
+    ggpubr,
+    here,
+    multcomp,
+    readxl,
+    stats,
+    writexl
