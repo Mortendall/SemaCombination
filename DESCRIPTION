@@ -16,3 +16,7 @@ Imports:
     readxl,
     stats,
     writexl
+License: MIT + file LICENSE
+Authors@R: 
+    person("Morten", "Dall", , "dall@sund.ku.dk", role = c("cre", "aut"),
+           comment = c(ORCID = "0000-0002-8577-3162"))
