@@ -26,6 +26,9 @@ The following folders contain:
 
 # Installing project R package dependencies
 
-Used packages are available in the "DESCRIPTION" file
+Used packages are available in the "DESCRIPTION" file. The project uses the renv 
+package, so packages can be installed with `renv::install()`.
 
-
+To re-run script with data (which can be provided through reasonable request through
+[Morten Dall](mailto:dall@sund.ku.dk)) data files must be placed in a folder in 
+`data-raw/` called `sema`.
